@@ -8783,6 +8783,7 @@ LIMIT_MARGIN_QTC_MS = 10   # QTc 461-469: borderline (measurement error), prolon
 LIMIT_MARGIN_PR_MS = 10    # PR 201-210: borderline first-degree AV block\r
 AV_DISSOC_STRONG_PERIODICITY = 0.5   # atrial-train periodicity below this: AV dissociation "possible" (abnormal)\r
 RHYTHM_MODEL = True        # add the rhythm pattern model's flags (ecg_engine/classify.py)\r
+QT_NEXT_BEAT_MARGIN_MS = 60  # a QT ending within this of the next QRS is not a QT (not measurable)\r
 ESCAPE_HR = 40             # below this rate a wide QRS without P = ventricular escape\r
 WCT_QRS_MARGIN_MS = 20     # wide-complex tachycardia: QRS at least this much above the age limit\r
 QT_WIDE_QRS_MS = 120       # QT unreliable on a low-quality tracing with a QRS this wide\r
@@ -9527,6 +9528,12 @@ def build_report(rr, P, page, an, speed, page_dur, age_text, clinical, flipped_b
         prim = ("tangent on RMS curve of the column leads", rms_qt)\r
     elif rel_vals:\r
         prim = ("per-lead tangent", _r(np.percentile(rel_vals, QT_PCT)))\r
+    # a "QT" reaching into the next beat is no QT: with every T wave too low to place its end, the RMS fallback found\r
+    # the next P / QRS (user photo at 134/min, T 0.6-1.0 mm: QT 418 / QTc 624 vs the machine's 269 / 402)\r
+    if prim and rr_s and prim[1] > rr_s * 1000 - QT_NEXT_BEAT_MARGIN_MS:\r
+        gsum["qt_not_measurable"] = (f"the only T end found ({prim[1]} ms) lies in the next beat (R-R {rr_s * 1000:.0f} ms): "\r
+                                     "T waves too low to place the T end - measure the QT by hand")\r
+        prim = None\r
     if prim:\r
         gsum["qt_ms"] = prim[1]\r
         gsum["qt_lead"] = prim[0]\r
@@ -9761,7 +9768,8 @@ def key_numbers(r: dict) -> list:\r
                      "may include the P wave - measure QT yourself in a lead where the T wave clearly ends before the P wave; "\r
                      "if none, say QTc is not reliably measurable at this rate")\r
     else:\r
-        why = "HR > 150: T end merges with the next beat" if hr and hr > 150 else "T end not identifiable on the digitised leads"\r
+        why = (iv.get("qt_not_measurable") or ("HR > 150: T end merges with the next beat" if hr and hr > 150 else\r
+                                                  "T end not identifiable on the digitised leads"))\r
         L.append(f"- **QTc: not measured** ({why}) - estimate visually if possible, otherwise state it is not measurable")\r
     hr_ref = (ref or {}).get("heart_rate", {})\r
     ax_ref = (ref or {}).get("qrs_axis", {})\r
